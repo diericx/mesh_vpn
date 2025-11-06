@@ -1,0 +1,23 @@
+# Binaries for the current OS and architecture
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+
+# Go build artifacts
+*.test
+*.out
+/vendor/ # If you are using go modules, vendor directory might be ignored.
+
+# IDE and Editor specific files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store # macOS specific
+Thumbs.db # Windows specific
+
+# Log files and temporary files
+*.log
+tmp/
