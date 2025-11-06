@@ -47,12 +47,14 @@ func Add(args []string) error {
 		fmt.Printf("✓ Received public key from %s\n\n", peerName)
 	}
 
-	// Create new peer
+	// Create new peer with endpoint
+	endpoint := fmt.Sprintf("%s:%d", publicIP, cfg.WireGuardPort)
 	peer := types.Peer{
 		Name:         peerName,
 		PublicIP:     publicIP,
 		WireGuardIP:  wireGuardIP,
 		PublicKey:    peerPublicKey,
+		Endpoint:     endpoint,
 		LastSeen:     time.Now(),
 		HasOpenPort:  false,                 // Will be determined through discovery
 		AllowedIPs:   []string{wireGuardIP}, // Allow traffic from this peer's WireGuard IP

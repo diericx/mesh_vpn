@@ -129,12 +129,13 @@ func (d *Daemon) handleKeyExchangeRequest(peerName, publicKey, publicIP, wireGua
 	// Check if peer already exists
 	for _, p := range d.config.Peers {
 		if p.Name == peerName {
-			fmt.Printf("Peer %s already exists, updating public key\n", peerName)
-			// Update the peer's public key
+			fmt.Printf("Peer %s already exists, updating public key and endpoint\n", peerName)
+			// Update the peer's public key and endpoint
 			for i := range d.config.Peers {
 				if d.config.Peers[i].Name == peerName {
 					d.config.Peers[i].PublicKey = publicKey
 					d.config.Peers[i].PublicIP = publicIP
+					d.config.Peers[i].Endpoint = fmt.Sprintf("%s:%d", publicIP, d.config.WireGuardPort)
 					break
 				}
 			}
@@ -147,12 +148,14 @@ func (d *Daemon) handleKeyExchangeRequest(peerName, publicKey, publicIP, wireGua
 		}
 	}
 
-	// Create new peer
+	// Create new peer with endpoint
+	endpoint := fmt.Sprintf("%s:%d", publicIP, d.config.WireGuardPort)
 	peer := types.Peer{
 		Name:         peerName,
 		PublicIP:     publicIP,
 		WireGuardIP:  wireGuardIP,
 		PublicKey:    publicKey,
+		Endpoint:     endpoint,
 		HasOpenPort:  false,
 		AllowedIPs:   []string{wireGuardIP},
 		PersistentKA: 25,
