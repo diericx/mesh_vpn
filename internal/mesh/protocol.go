@@ -12,13 +12,14 @@ import (
 
 // Protocol handles mesh network communication
 type Protocol struct {
-	config   *types.NodeConfig
-	conn     *net.UDPConn
-	handlers map[string]types.MessageHandler
-	peers    map[string]*types.Connection
-	peersMux sync.RWMutex
-	stopChan chan struct{}
-	wg       sync.WaitGroup
+	config              *types.NodeConfig
+	conn                *net.UDPConn
+	handlers            map[string]types.MessageHandler
+	peers               map[string]*types.Connection
+	peersMux            sync.RWMutex
+	stopChan            chan struct{}
+	wg                  sync.WaitGroup
+	keyExchangeCallback func(peerName, publicKey, publicIP, wireGuardIP string) error
 }
 
 // NewProtocol creates a new mesh protocol instance
@@ -47,7 +48,8 @@ func (p *Protocol) Start() error {
 
 	// Register default handlers
 	p.RegisterHandler(types.MsgTypePeerAnnounce, p.handlePeerAnnounce)
-	p.RegisterHandler(types.MsgTypeKeyExchange, p.handleKeyExchange)
+	p.RegisterHandler(types.MsgTypeKeyExchangeRequest, p.handleKeyExchangeRequest)
+	p.RegisterHandler(types.MsgTypeKeyExchangeResponse, p.handleKeyExchangeResponse)
 	p.RegisterHandler(types.MsgTypeHeartbeat, p.handleHeartbeat)
 	p.RegisterHandler(types.MsgTypePeerUpdate, p.handlePeerUpdate)
 	p.RegisterHandler(types.MsgTypeSTUNRequest, p.handleSTUNRequest)
@@ -210,9 +212,62 @@ func (p *Protocol) handlePeerAnnounce(msg *types.MeshMessage, addr *net.UDPAddr)
 	return nil
 }
 
-func (p *Protocol) handleKeyExchange(msg *types.MeshMessage, addr *net.UDPAddr) error {
-	// Handle key exchange
-	// This would process WireGuard public key exchange
+// SetKeyExchangeCallback sets the callback function for handling key exchange requests
+func (p *Protocol) SetKeyExchangeCallback(callback func(peerName, publicKey, publicIP, wireGuardIP string) error) {
+	p.keyExchangeCallback = callback
+}
+
+func (p *Protocol) handleKeyExchangeRequest(msg *types.MeshMessage, addr *net.UDPAddr) error {
+	// Extract peer information from the request
+	peerName, ok := msg.Data["name"].(string)
+	if !ok {
+		return fmt.Errorf("invalid peer name in key exchange request")
+	}
+
+	publicKey, ok := msg.Data["public_key"].(string)
+	if !ok {
+		return fmt.Errorf("invalid public key in key exchange request")
+	}
+
+	wireGuardIP, ok := msg.Data["wireguard_ip"].(string)
+	if !ok {
+		return fmt.Errorf("invalid wireguard IP in key exchange request")
+	}
+
+	publicIP := addr.IP.String()
+
+	fmt.Printf("Received key exchange request from %s (%s)\n", peerName, publicIP)
+
+	// Call the callback to add the peer to the configuration
+	if p.keyExchangeCallback != nil {
+		if err := p.keyExchangeCallback(peerName, publicKey, publicIP, wireGuardIP); err != nil {
+			fmt.Printf("Failed to add peer %s: %v\n", peerName, err)
+			return err
+		}
+	}
+
+	// Send response with our public key
+	responseData := map[string]interface{}{
+		"name":         p.config.Name,
+		"public_key":   p.config.PublicKey,
+		"wireguard_ip": p.config.WireGuardIP,
+		"success":      true,
+	}
+
+	response := &types.MeshMessage{
+		Type:      types.MsgTypeKeyExchangeResponse,
+		From:      p.config.Name,
+		To:        peerName,
+		Timestamp: time.Now(),
+		Data:      responseData,
+	}
+
+	return p.sendMessageToAddr(response, publicIP, p.config.MeshPort)
+}
+
+func (p *Protocol) handleKeyExchangeResponse(msg *types.MeshMessage, addr *net.UDPAddr) error {
+	// This is handled by the CLI command waiting for the response
+	// The response will be picked up by SendKeyExchangeRequest
 	return nil
 }
 
@@ -269,6 +324,58 @@ func (p *Protocol) AnnouncePresence() error {
 	}
 
 	return p.BroadcastMessage(types.MsgTypePeerAnnounce, data)
+}
+
+// SendKeyExchangeRequest sends a key exchange request and waits for a response
+func (p *Protocol) SendKeyExchangeRequest(peerName, publicIP, wireGuardIP string, timeout time.Duration) (string, error) {
+	// Create a channel to receive the response
+	responseChan := make(chan *types.MeshMessage, 1)
+
+	// Register a temporary handler for the response
+	responseHandler := func(msg *types.MeshMessage, addr *net.UDPAddr) error {
+		if msg.From == peerName && msg.Type == types.MsgTypeKeyExchangeResponse {
+			responseChan <- msg
+		}
+		return nil
+	}
+
+	// Register the handler
+	p.RegisterHandler(types.MsgTypeKeyExchangeResponse, responseHandler)
+	defer func() {
+		// Restore the default handler
+		p.RegisterHandler(types.MsgTypeKeyExchangeResponse, p.handleKeyExchangeResponse)
+	}()
+
+	// Send the key exchange request
+	requestData := map[string]interface{}{
+		"name":         p.config.Name,
+		"public_key":   p.config.PublicKey,
+		"wireguard_ip": p.config.WireGuardIP,
+	}
+
+	// Send directly to IP since peer might not be in config yet
+	msg := &types.MeshMessage{
+		Type:      types.MsgTypeKeyExchangeRequest,
+		From:      p.config.Name,
+		To:        peerName,
+		Timestamp: time.Now(),
+		Data:      requestData,
+	}
+	if err := p.sendMessageToAddr(msg, publicIP, p.config.MeshPort); err != nil {
+		return "", fmt.Errorf("failed to send key exchange request: %w", err)
+	}
+
+	// Wait for response with timeout
+	select {
+	case response := <-responseChan:
+		publicKey, ok := response.Data["public_key"].(string)
+		if !ok {
+			return "", fmt.Errorf("invalid public key in response")
+		}
+		return publicKey, nil
+	case <-time.After(timeout):
+		return "", fmt.Errorf("timeout waiting for key exchange response")
+	}
 }
 
 // GetConn returns the UDP connection for use by other components

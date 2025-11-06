@@ -6,6 +6,7 @@ import (
 	"github.com/diericx/mesh-vpn/internal/config"
 	"github.com/diericx/mesh-vpn/internal/firewall"
 	"github.com/diericx/mesh-vpn/internal/types"
+	"github.com/diericx/mesh-vpn/internal/wireguard"
 )
 
 // Allow allows traffic to/from a peer
@@ -34,6 +35,11 @@ func Allow(args []string) error {
 		return fmt.Errorf("peer not found: %s", peerName)
 	}
 
+	// Check if peer has WireGuard IP
+	if peer.WireGuardIP == "" {
+		return fmt.Errorf("peer %s does not have a WireGuard IP configured. Please add the peer with: mvpn add %s <public-ip> <wireguard-ip>", peerName, peerName)
+	}
+
 	// Get or create ACL rule
 	aclRule, err := config.GetACLRule(cfg, peerName)
 	if err != nil {
@@ -59,19 +65,31 @@ func Allow(args []string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	// Apply firewall rules
+	fmt.Printf("ACL rule updated: allowed %s traffic for peer %s\n", direction, peerName)
+
+	// Apply firewall rules if daemon is running
 	fwMgr := firewall.NewManager(cfg.InterfaceName)
-	if direction == "incoming" {
-		if err := fwMgr.AllowIncoming(peer.WireGuardIP); err != nil {
-			return fmt.Errorf("failed to apply firewall rule: %w", err)
+	wgMgr := wireguard.NewManager(cfg.InterfaceName)
+
+	if wgMgr.InterfaceExists() {
+		if direction == "incoming" {
+			if err := fwMgr.AllowIncoming(peer.WireGuardIP); err != nil {
+				fmt.Printf("Warning: failed to apply firewall rule immediately: %v\n", err)
+				fmt.Printf("Rule will be applied when daemon restarts\n")
+			} else {
+				fmt.Printf("Firewall rule applied immediately\n")
+			}
+		} else {
+			if err := fwMgr.AllowOutgoing(peer.WireGuardIP); err != nil {
+				fmt.Printf("Warning: failed to apply firewall rule immediately: %v\n", err)
+				fmt.Printf("Rule will be applied when daemon restarts\n")
+			} else {
+				fmt.Printf("Firewall rule applied immediately\n")
+			}
 		}
 	} else {
-		if err := fwMgr.AllowOutgoing(peer.WireGuardIP); err != nil {
-			return fmt.Errorf("failed to apply firewall rule: %w", err)
-		}
+		fmt.Printf("Note: Daemon is not running. Firewall rules will be applied when you start the daemon.\n")
 	}
-
-	fmt.Printf("Allowed %s traffic for peer %s\n", direction, peerName)
 
 	return nil
 }

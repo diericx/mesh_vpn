@@ -75,6 +75,9 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("failed to start mesh protocol: %w", err)
 	}
 
+	// Set up key exchange callback
+	d.meshProto.SetKeyExchangeCallback(d.handleKeyExchangeRequest)
+
 	// Start STUN server (uses mesh protocol's connection)
 	if err := d.stunServer.Start(d.meshProto); err != nil {
 		return fmt.Errorf("failed to start STUN server: %w", err)
@@ -117,6 +120,71 @@ func (d *Daemon) Stop() error {
 	d.wg.Wait()
 
 	return nil
+}
+
+// handleKeyExchangeRequest handles incoming key exchange requests
+func (d *Daemon) handleKeyExchangeRequest(peerName, publicKey, publicIP, wireGuardIP string) error {
+	fmt.Printf("Processing key exchange request from %s\n", peerName)
+
+	// Check if peer already exists
+	for _, p := range d.config.Peers {
+		if p.Name == peerName {
+			fmt.Printf("Peer %s already exists, updating public key\n", peerName)
+			// Update the peer's public key
+			for i := range d.config.Peers {
+				if d.config.Peers[i].Name == peerName {
+					d.config.Peers[i].PublicKey = publicKey
+					d.config.Peers[i].PublicIP = publicIP
+					break
+				}
+			}
+			// Save configuration
+			if err := d.configMgr.Save(d.config); err != nil {
+				return fmt.Errorf("failed to save config: %w", err)
+			}
+			// Reload to apply changes
+			return d.Reload()
+		}
+	}
+
+	// Create new peer
+	peer := types.Peer{
+		Name:         peerName,
+		PublicIP:     publicIP,
+		WireGuardIP:  wireGuardIP,
+		PublicKey:    publicKey,
+		HasOpenPort:  false,
+		AllowedIPs:   []string{wireGuardIP},
+		PersistentKA: 25,
+	}
+
+	// Add peer to configuration
+	if err := config.AddPeer(d.config, peer); err != nil {
+		return fmt.Errorf("failed to add peer: %w", err)
+	}
+
+	// Create default ACL rule (deny all)
+	aclRule := types.ACLRule{
+		PeerName: peerName,
+		Incoming: false,
+		Outgoing: false,
+	}
+	config.UpdateACLRule(d.config, aclRule)
+
+	// Save configuration
+	if err := d.configMgr.Save(d.config); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Printf("Peer %s added successfully via key exchange\n", peerName)
+
+	// Reload to apply changes
+	return d.Reload()
+}
+
+// GetMeshProtocol returns the mesh protocol instance for CLI commands
+func (d *Daemon) GetMeshProtocol() *mesh.Protocol {
+	return d.meshProto
 }
 
 // Reload reloads the configuration and applies changes

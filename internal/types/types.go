@@ -54,13 +54,15 @@ type MeshMessage struct {
 
 // MessageType constants
 const (
-	MsgTypePeerDiscovery = "peer_discovery"
-	MsgTypePeerAnnounce  = "peer_announce"
-	MsgTypeKeyExchange   = "key_exchange"
-	MsgTypeSTUNRequest   = "stun_request"
-	MsgTypeSTUNResponse  = "stun_response"
-	MsgTypeHeartbeat     = "heartbeat"
-	MsgTypePeerUpdate    = "peer_update"
+	MsgTypePeerDiscovery       = "peer_discovery"
+	MsgTypePeerAnnounce        = "peer_announce"
+	MsgTypeKeyExchange         = "key_exchange"
+	MsgTypeKeyExchangeRequest  = "key_exchange_request"
+	MsgTypeKeyExchangeResponse = "key_exchange_response"
+	MsgTypeSTUNRequest         = "stun_request"
+	MsgTypeSTUNResponse        = "stun_response"
+	MsgTypeHeartbeat           = "heartbeat"
+	MsgTypePeerUpdate          = "peer_update"
 )
 
 // STUNRequest represents a STUN traversal request

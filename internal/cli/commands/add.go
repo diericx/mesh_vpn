@@ -5,17 +5,19 @@ import (
 	"time"
 
 	"github.com/diericx/mesh-vpn/internal/config"
+	"github.com/diericx/mesh-vpn/internal/mesh"
 	"github.com/diericx/mesh-vpn/internal/types"
 )
 
 // Add adds a new peer to the network
 func Add(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: mvpn add <name> <public-ip>")
+	if len(args) < 3 {
+		return fmt.Errorf("usage: mvpn add <name> <public-ip> <wireguard-ip>")
 	}
 
 	peerName := args[0]
 	publicIP := args[1]
+	wireGuardIP := args[2]
 
 	// Load configuration
 	configMgr := config.NewManager("")
@@ -31,14 +33,29 @@ func Add(args []string) error {
 		}
 	}
 
+	fmt.Printf("Attempting automatic key exchange with %s...\n", peerName)
+
+	// Try to perform automatic key exchange
+	peerPublicKey, err := attemptKeyExchange(cfg, peerName, publicIP, wireGuardIP)
+	if err != nil {
+		fmt.Printf("Automatic key exchange failed: %v\n", err)
+		fmt.Printf("Falling back to manual configuration...\n\n")
+		peerPublicKey = "" // Will be added manually
+	} else {
+		fmt.Printf("✓ Key exchange successful!\n")
+		fmt.Printf("✓ Received public key from %s\n\n", peerName)
+	}
+
 	// Create new peer
 	peer := types.Peer{
 		Name:         peerName,
 		PublicIP:     publicIP,
+		WireGuardIP:  wireGuardIP,
+		PublicKey:    peerPublicKey,
 		LastSeen:     time.Now(),
-		HasOpenPort:  false, // Will be determined through discovery
-		AllowedIPs:   []string{},
-		PersistentKA: 25, // Default keepalive
+		HasOpenPort:  false,                 // Will be determined through discovery
+		AllowedIPs:   []string{wireGuardIP}, // Allow traffic from this peer's WireGuard IP
+		PersistentKA: 25,                    // Default keepalive
 	}
 
 	// Add peer to configuration
@@ -61,7 +78,41 @@ func Add(args []string) error {
 
 	fmt.Printf("Peer %s added successfully\n", peerName)
 	fmt.Printf("Public IP: %s\n", publicIP)
-	fmt.Printf("Note: Traffic is blocked by default. Use 'mvpn allow' to enable communication.\n")
+	fmt.Printf("WireGuard IP: %s\n", wireGuardIP)
+
+	if peerPublicKey != "" {
+		fmt.Printf("Public Key: %s\n", peerPublicKey)
+		fmt.Printf("\n✓ Peer has been automatically added to both nodes!\n")
+		fmt.Printf("✓ %s should now see you in their peer list\n", peerName)
+	} else {
+		fmt.Printf("\nNote: You need to exchange public keys with this peer.\n")
+		fmt.Printf("Your public key: %s\n", cfg.PublicKey)
+		fmt.Printf("\nOnce you have the peer's public key, update the configuration manually:\n")
+		fmt.Printf("  Edit /etc/mesh-vpn/config.json and add the peer's public_key\n")
+	}
+
+	fmt.Printf("\nTraffic is blocked by default. Use 'mvpn allow' to enable communication.\n")
 
 	return nil
+}
+
+// attemptKeyExchange tries to perform automatic key exchange with the peer
+func attemptKeyExchange(cfg *types.NodeConfig, peerName, publicIP, wireGuardIP string) (string, error) {
+	// Create a temporary mesh protocol instance for sending the request
+	proto := mesh.NewProtocol(cfg)
+
+	// Start the protocol (this will bind to the mesh port temporarily)
+	if err := proto.Start(); err != nil {
+		return "", fmt.Errorf("failed to start mesh protocol: %w", err)
+	}
+	defer proto.Stop()
+
+	// Send key exchange request with 10 second timeout
+	fmt.Printf("Sending key exchange request to %s (%s)...\n", peerName, publicIP)
+	publicKey, err := proto.SendKeyExchangeRequest(peerName, publicIP, wireGuardIP, 10*time.Second)
+	if err != nil {
+		return "", err
+	}
+
+	return publicKey, nil
 }

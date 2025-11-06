@@ -53,16 +53,16 @@ Usage:
   mvpn <command> [arguments]
 
 Commands:
-  init <name> <wireguard-ip>     Initialize a new node configuration
-  start                          Start the mesh VPN daemon
-  stop                           Stop the mesh VPN daemon
-  add <name> <public-ip>         Add a new peer to the network
-  remove <name>                  Remove a peer from the network
-  allow <direction> <peer>       Allow traffic (direction: incoming/outgoing)
-  deny <direction> <peer>        Deny traffic (direction: incoming/outgoing)
-  ls, list                       List all known peers and their status
-  status                         Show current node status
-  help                           Show this help message
+  init <name> <wireguard-ip>              Initialize a new node configuration
+  start                                   Start the mesh VPN daemon
+  stop                                    Stop the mesh VPN daemon
+  add <name> <public-ip> <wireguard-ip>   Add a new peer to the network
+  remove <name>                           Remove a peer from the network
+  allow <direction> <peer>                Allow traffic (direction: incoming/outgoing)
+  deny <direction> <peer>                 Deny traffic (direction: incoming/outgoing)
+  ls, list                                List all known peers and their status
+  status                                  Show current node status
+  help                                    Show this help message
 
 Examples:
   # Initialize node S1 with WireGuard IP 10.0.0.1/24
@@ -71,8 +71,8 @@ Examples:
   # Start the mesh VPN daemon
   mvpn start
 
-  # Add peer S2 with public IP 24.156.199.2
-  mvpn add S2 24.156.199.2
+  # Add peer S2 with public IP 24.156.199.2 and WireGuard IP 10.0.0.2/24
+  mvpn add S2 24.156.199.2 10.0.0.2/24
 
   # Allow incoming traffic from S2
   mvpn allow incoming S2
