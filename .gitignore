@@ -21,3 +21,4 @@ Thumbs.db # Windows specific
 # Log files and temporary files
 *.log
 tmp/
+./mvpn
