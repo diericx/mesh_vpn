@@ -14,21 +14,18 @@ import (
 type Protocol struct {
 	config   *types.NodeConfig
 	conn     *net.UDPConn
-	handlers map[string]MessageHandler
+	handlers map[string]types.MessageHandler
 	peers    map[string]*types.Connection
 	peersMux sync.RWMutex
 	stopChan chan struct{}
 	wg       sync.WaitGroup
 }
 
-// MessageHandler is a function that handles incoming messages
-type MessageHandler func(msg *types.MeshMessage, addr *net.UDPAddr) error
-
 // NewProtocol creates a new mesh protocol instance
 func NewProtocol(config *types.NodeConfig) *Protocol {
 	return &Protocol{
 		config:   config,
-		handlers: make(map[string]MessageHandler),
+		handlers: make(map[string]types.MessageHandler),
 		peers:    make(map[string]*types.Connection),
 		stopChan: make(chan struct{}),
 	}
@@ -53,6 +50,8 @@ func (p *Protocol) Start() error {
 	p.RegisterHandler(types.MsgTypeKeyExchange, p.handleKeyExchange)
 	p.RegisterHandler(types.MsgTypeHeartbeat, p.handleHeartbeat)
 	p.RegisterHandler(types.MsgTypePeerUpdate, p.handlePeerUpdate)
+	p.RegisterHandler(types.MsgTypeSTUNRequest, p.handleSTUNRequest)
+	p.RegisterHandler(types.MsgTypeSTUNResponse, p.handleSTUNResponse)
 
 	// Start listening goroutine
 	p.wg.Add(1)
@@ -76,7 +75,7 @@ func (p *Protocol) Stop() error {
 }
 
 // RegisterHandler registers a message handler for a specific message type
-func (p *Protocol) RegisterHandler(msgType string, handler MessageHandler) {
+func (p *Protocol) RegisterHandler(msgType string, handler types.MessageHandler) {
 	p.handlers[msgType] = handler
 }
 
@@ -270,4 +269,20 @@ func (p *Protocol) AnnouncePresence() error {
 	}
 
 	return p.BroadcastMessage(types.MsgTypePeerAnnounce, data)
+}
+
+// GetConn returns the UDP connection for use by other components
+func (p *Protocol) GetConn() *net.UDPConn {
+	return p.conn
+}
+
+// STUN-related handlers (to be implemented by STUN server)
+func (p *Protocol) handleSTUNRequest(msg *types.MeshMessage, addr *net.UDPAddr) error {
+	// This will be handled by registering the STUN server's handler
+	return nil
+}
+
+func (p *Protocol) handleSTUNResponse(msg *types.MeshMessage, addr *net.UDPAddr) error {
+	// This will be handled by registering the STUN server's handler
+	return nil
 }

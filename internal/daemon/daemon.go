@@ -75,8 +75,8 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("failed to start mesh protocol: %w", err)
 	}
 
-	// Start STUN server
-	if err := d.stunServer.Start(); err != nil {
+	// Start STUN server (uses mesh protocol's connection)
+	if err := d.stunServer.Start(d.meshProto); err != nil {
 		return fmt.Errorf("failed to start STUN server: %w", err)
 	}
 

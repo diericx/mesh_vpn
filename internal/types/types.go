@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// MessageHandler is a function that handles incoming mesh messages
+type MessageHandler func(msg *MeshMessage, addr *net.UDPAddr) error
+
 // Peer represents a node in the mesh network
 type Peer struct {
 	Name         string    `json:"name"`

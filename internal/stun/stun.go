@@ -18,6 +18,13 @@ type Server struct {
 	sessionsMux sync.RWMutex
 	stopChan    chan struct{}
 	wg          sync.WaitGroup
+	meshProto   MessageProtocol
+}
+
+// MessageProtocol interface for registering handlers
+type MessageProtocol interface {
+	RegisterHandler(msgType string, handler types.MessageHandler)
+	GetConn() *net.UDPConn
 }
 
 // STUNSession represents an active STUN session
@@ -39,22 +46,17 @@ func NewServer(config *types.NodeConfig) *Server {
 	}
 }
 
-// Start begins the STUN server
-func (s *Server) Start() error {
-	addr := &net.UDPAddr{
-		Port: s.config.MeshPort,
-		IP:   net.ParseIP("0.0.0.0"),
-	}
+// Start begins the STUN server by registering handlers with mesh protocol
+func (s *Server) Start(meshProto MessageProtocol) error {
+	s.meshProto = meshProto
+	s.conn = meshProto.GetConn()
 
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to start STUN server: %w", err)
-	}
+	// Register STUN message handlers
+	meshProto.RegisterHandler(types.MsgTypeSTUNRequest, s.handleSTUNRequest)
 
-	s.conn = conn
-
+	// Start session cleanup goroutine
 	s.wg.Add(1)
-	go s.listen()
+	go s.cleanupLoop()
 
 	return nil
 }
@@ -62,43 +64,23 @@ func (s *Server) Start() error {
 // Stop stops the STUN server
 func (s *Server) Stop() error {
 	close(s.stopChan)
-	if s.conn != nil {
-		s.conn.Close()
-	}
 	s.wg.Wait()
 	return nil
 }
 
-// listen listens for STUN requests
-func (s *Server) listen() {
+// cleanupLoop periodically cleans up old sessions
+func (s *Server) cleanupLoop() {
 	defer s.wg.Done()
 
-	buffer := make([]byte, 65535)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-s.stopChan:
 			return
-		default:
-			s.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-			n, addr, err := s.conn.ReadFromUDP(buffer)
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue
-				}
-				continue
-			}
-
-			// Parse message
-			var msg types.MeshMessage
-			if err := json.Unmarshal(buffer[:n], &msg); err != nil {
-				continue
-			}
-
-			// Handle STUN messages
-			switch msg.Type {
-			case types.MsgTypeSTUNRequest:
-				go s.handleSTUNRequest(&msg, addr)
-			}
+		case <-ticker.C:
+			s.CleanupSessions()
 		}
 	}
 }

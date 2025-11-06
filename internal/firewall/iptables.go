@@ -63,14 +63,20 @@ func (m *Manager) Initialize() error {
 
 // ensureJumpRule ensures a jump rule exists from mainChain to customChain
 func (m *Manager) ensureJumpRule(mainChain, customChain string) error {
+	// Determine interface flag based on chain type
+	interfaceFlag := "-i"
+	if mainChain == "OUTPUT" {
+		interfaceFlag = "-o"
+	}
+
 	// Check if rule already exists
-	cmd := exec.Command("iptables", "-C", mainChain, "-i", m.interfaceName, "-j", customChain)
+	cmd := exec.Command("iptables", "-C", mainChain, interfaceFlag, m.interfaceName, "-j", customChain)
 	if err := cmd.Run(); err == nil {
 		return nil // Rule already exists
 	}
 
 	// Add the jump rule
-	cmd = exec.Command("iptables", "-I", mainChain, "1", "-i", m.interfaceName, "-j", customChain)
+	cmd = exec.Command("iptables", "-I", mainChain, "1", interfaceFlag, m.interfaceName, "-j", customChain)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to add jump rule: %w", err)
 	}
