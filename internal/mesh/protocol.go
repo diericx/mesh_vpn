@@ -246,7 +246,7 @@ func (p *Protocol) handleKeyExchangeRequest(msg *types.MeshMessage, addr *net.UD
 		}
 	}
 
-	// Send response with our public key
+	// Send response with our public key back to the sender's address
 	responseData := map[string]interface{}{
 		"name":         p.config.Name,
 		"public_key":   p.config.PublicKey,
@@ -262,7 +262,17 @@ func (p *Protocol) handleKeyExchangeRequest(msg *types.MeshMessage, addr *net.UD
 		Data:      responseData,
 	}
 
-	return p.sendMessageToAddr(response, publicIP, p.config.MeshPort)
+	// Send response back to the address that sent the request
+	data, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	if _, err := p.conn.WriteToUDP(data, addr); err != nil {
+		return fmt.Errorf("failed to send response: %w", err)
+	}
+
+	return nil
 }
 
 func (p *Protocol) handleKeyExchangeResponse(msg *types.MeshMessage, addr *net.UDPAddr) error {

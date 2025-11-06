@@ -1,11 +1,12 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/diericx/mesh-vpn/internal/config"
-	"github.com/diericx/mesh-vpn/internal/mesh"
 	"github.com/diericx/mesh-vpn/internal/types"
 )
 
@@ -98,20 +99,73 @@ func Add(args []string) error {
 
 // attemptKeyExchange tries to perform automatic key exchange with the peer
 func attemptKeyExchange(cfg *types.NodeConfig, peerName, publicIP, wireGuardIP string) (string, error) {
-	// Create a temporary mesh protocol instance for sending the request
-	proto := mesh.NewProtocol(cfg)
-
-	// Start the protocol (this will bind to the mesh port temporarily)
-	if err := proto.Start(); err != nil {
-		return "", fmt.Errorf("failed to start mesh protocol: %w", err)
-	}
-	defer proto.Stop()
-
-	// Send key exchange request with 10 second timeout
-	fmt.Printf("Sending key exchange request to %s (%s)...\n", peerName, publicIP)
-	publicKey, err := proto.SendKeyExchangeRequest(peerName, publicIP, wireGuardIP, 10*time.Second)
+	// Create a temporary UDP connection on an ephemeral port
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create UDP connection: %w", err)
+	}
+	defer conn.Close()
+
+	// Create key exchange request message
+	requestData := map[string]interface{}{
+		"name":         cfg.Name,
+		"public_key":   cfg.PublicKey,
+		"wireguard_ip": cfg.WireGuardIP,
+	}
+
+	msg := &types.MeshMessage{
+		Type:      types.MsgTypeKeyExchangeRequest,
+		From:      cfg.Name,
+		To:        peerName,
+		Timestamp: time.Now(),
+		Data:      requestData,
+	}
+
+	// Marshal the message
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	// Send to target peer
+	targetAddr := &net.UDPAddr{
+		IP:   net.ParseIP(publicIP),
+		Port: cfg.MeshPort,
+	}
+
+	fmt.Printf("Sending key exchange request to %s (%s)...\n", peerName, publicIP)
+	if _, err := conn.WriteToUDP(data, targetAddr); err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+
+	// Set read timeout
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+	// Wait for response
+	buffer := make([]byte, 65535)
+	n, _, err := conn.ReadFromUDP(buffer)
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return "", fmt.Errorf("timeout waiting for response")
+		}
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse response
+	var response types.MeshMessage
+	if err := json.Unmarshal(buffer[:n], &response); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Verify it's a key exchange response
+	if response.Type != types.MsgTypeKeyExchangeResponse {
+		return "", fmt.Errorf("unexpected response type: %s", response.Type)
+	}
+
+	// Extract public key
+	publicKey, ok := response.Data["public_key"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid public key in response")
 	}
 
 	return publicKey, nil
